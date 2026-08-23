@@ -489,6 +489,198 @@ http.createServer((req, res) => {
   console.log(`Server running on port ${PORT}`);
   pollTelegram();
 });
+= 'WAITING_USDT_WALLET') {
+      if (!text.startsWith('0x') || text.length < 30) {
+        sendTelegram('sendMessage', { chat_id: chatId, text: '❌ Ví BEP-20 không hợp lệ!' });
+        return;
+      }
+      user.tempWithdraw = { type: 'USDT', usdtWallet: text };
+      user.withdrawStep = 'WAITING_AMOUNT';
+      saveData(db);
+      sendTelegram('sendMessage', { chat_id: chatId, text: `💰 Nhập số tiền VNĐ muốn quy đổi rút USDT:` });
+      return;
+    }
+
+    if (user.withdrawStep === 'WAITING_AMOUNT') {
+      const amount = Number(text);
+      if (isNaN(amount) || amount < MIN_WITHDRAW_VN || amount > MAX_WITHDRAW_VN || amount > user.balance) {
+        sendTelegram('sendMessage', { chat_id: chatId, text: `❌ Số tiền không hợp lệ! Nhập lại:` });
+        return;
+      }
+
+      user.balance -= amount;
+      const reqId = Date.now();
+      const info = user.tempWithdraw;
+      db.withdraw_requests.push({ id: reqId, userId, amount, type: info.type, status: 'PENDING' });
+      user.withdrawStep = null;
+      saveData(db);
+
+      sendTelegram('sendMessage', { chat_id: chatId, text: `✅ Đã gửi yêu cầu rút tiền thành công!` });
+      return;
+    }
+
+    // ĐANG CHỜ MÃ VƯỢT LINK
+    if (user.waitingForCode) {
+      if (text !== user.expectedCode) {
+        sendTelegram('sendMessage', { chat_id: chatId, text: '❌ Sai mã xác nhận! Vui lòng nhập đúng mã lấy từ link hoặc bấm nút Hủy bên dưới.' });
+        return;
+      }
+
+      db.redeemed_codes.push(text);
+      user.balance += REWARD_PER_LINK;
+      user.lastBypassTime = Date.now();
+      user.waitingForCode = false;
+      user.expectedCode = null;
+
+      if (user.referredBy && !user.refRewarded) {
+        const ref = db.users[user.referredBy];
+        if (ref) {
+          ref.balance += REWARD_PER_REF;
+          sendTelegram('sendMessage', { chat_id: user.referredBy, text: `🎉 Thưởng giới thiệu +${REWARD_PER_REF} VNĐ!` });
+        }
+        user.refRewarded = true;
+      }
+      saveData(db);
+
+      // Trả lại menu chính sau khi nhập đúng mã thành công
+      const keyboard = [
+        [{ text: '🏠 PHẦN 1: LẤY LINK VƯỢT', callback_data: 'MENU_HOME' }],
+        [{ text: '🎁 Nhập Giftcode Nhận Thưởng', callback_data: 'MENU_GIFTCODE' }],
+        [{ text: '👥 Giới Thiệu (Ref)', callback_data: 'MENU_REF' }],
+        [{ text: '🏦 RÚT VN (10k-50k)', callback_data: 'MENU_WITHDRAW_VN' }, { text: '🌐 RÚT USDT', callback_data: 'MENU_WITHDRAW_USDT' }]
+      ];
+
+      sendTelegram('sendMessage', { 
+        chat_id: chatId, 
+        text: `🎉 **Chính xác!** Cộng +${REWARD_PER_LINK} VNĐ.\n💵 Số dư mới: **${user.balance.toLocaleString()} VNĐ**`,
+        parse_mode: 'Markdown',
+        reply_markup: { inline_keyboard: keyboard }
+      });
+      return;
+    }
+  }
+
+  if (update.callback_query) {
+    const cb = update.callback_query;
+    const chatId = cb.message.chat.id;
+    const messageId = cb.message.message_id;
+    const currentUserId = cb.from.id; 
+    const dataKey = cb.data;
+    
+    sendTelegram('answerCallbackQuery', { callback_query_id: cb.id }).catch(() => {});
+
+    const db = loadData();
+    const user = getUser(db, currentUserId);
+
+    if (dataKey === 'CANCEL_WAITING') {
+      user.waitingForCode = false;
+      user.expectedCode = null;
+      saveData(db);
+
+      const keyboard = [
+        [{ text: '🏠 PHẦN 1: LẤY LINK VƯỢT', callback_data: 'MENU_HOME' }],
+        [{ text: '🎁 Nhập Giftcode Nhận Thưởng', callback_data: 'MENU_GIFTCODE' }],
+        [{ text: '👥 Giới Thiệu (Ref)', callback_data: 'MENU_REF' }],
+        [{ text: '🏦 RÚT VN (10k-50k)', callback_data: 'MENU_WITHDRAW_VN' }, { text: '🌐 RÚT USDT', callback_data: 'MENU_WITHDRAW_USDT' }]
+      ];
+      if (currentUserId === ADMIN_ID) {
+        keyboard.unshift([{ text: '⚙️ QUẢN LÝ ADMIN (Tạo Key)', callback_data: 'ADMIN_PANEL' }]);
+      }
+
+      sendTelegram('editMessageText', {
+        chat_id: chatId,
+        message_id: messageId,
+        text: '❌ Đã hủy thao tác lấy link.',
+        reply_markup: { inline_keyboard: keyboard }
+      });
+      return;
+    }
+
+    if (dataKey === 'MENU_HOME') {
+      if (user.waitingForCode) {
+        sendTelegram('sendMessage', { chat_id: chatId, text: `❌ Bạn đang có link chưa hoàn thành! Vui lòng nhập mã hoặc bấm Hủy.` });
+        return;
+      }
+
+      const now = Date.now();
+      if (now - user.lastBypassTime < COOLDOWN_TIME) {
+        const rem = Math.ceil((COOLDOWN_TIME - (now - user.lastBypassTime)) / 1000);
+        sendTelegram('sendMessage', { chat_id: chatId, text: `⏳ Vui lòng đợi ${Math.ceil(rem/60)} phút nữa mới được lấy link tiếp!` });
+        return;
+      }
+
+      // GỠ BỎ TẤT CẢ CÁC NÚT Ở MENU CŨ ĐỂ KHÓA LẠI
+      sendTelegram('editMessageReplyMarkup', {
+        chat_id: chatId,
+        message_id: messageId,
+        reply_markup: { inline_keyboard: [] }
+      }).catch(() => {});
+
+      const code = 'UQ' + crypto.randomBytes(16).toString('hex').toUpperCase();
+      createDynamicLink(code, (link) => {
+        if (!link) {
+          sendTelegram('sendMessage', { chat_id: chatId, text: '❌ Lỗi tạo link, thử lại sau!' });
+          return;
+        }
+        user.waitingForCode = true;
+        user.expectedCode = code;
+        saveData(db);
+
+        // Gửi link kèm nút Hủy duy nhất
+        sendTelegram('sendMessage', {
+          chat_id: chatId,
+          text: `🔗 **Link của bạn:**\n${link}\n\n👉 Vượt link lấy mã dán vào khung chat!`,
+          parse_mode: 'Markdown',
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '❌ Hủy (Quay lại Menu)', callback_data: 'CANCEL_WAITING' }]
+            ]
+          }
+        });
+      });
+    } else if (dataKey === 'MENU_GIFTCODE') {
+      user.waitingForGiftcode = true;
+      saveData(db);
+      sendTelegram('sendMessage', {
+        chat_id: chatId,
+        text: `🎁 **NHẬP MÃ GIFTCODE**\n\nGửi mã giftcode vào đây (hoặc gõ \`/huy\`):`,
+        parse_mode: 'Markdown'
+      });
+    } else if (dataKey === 'MENU_REF') {
+      const refLink = `https://t.me/vuotlinkbot?start=${currentUserId}`;
+      sendTelegram('sendMessage', {
+        chat_id: chatId,
+        text: `👥 **Giới thiệu bạn bè**\n- Thưởng: +${REWARD_PER_REF} VNĐ/ref\n- Đã mời: ${user.refCount || 0} người\n\n🔗 **Link:** \`${refLink}\``,
+        parse_mode: 'Markdown'
+      });
+    } else if (dataKey === 'MENU_WITHDRAW_VN') {
+      if (user.balance < MIN_WITHDRAW_VN) {
+        sendTelegram('sendMessage', { chat_id: chatId, text: `❌ Cần tối thiểu ${MIN_WITHDRAW_VN.toLocaleString()} VNĐ để rút.` });
+        return;
+      }
+      user.withdrawStep = 'WAITING_ATM_INFO';
+      saveData(db);
+      sendTelegram('sendMessage', { chat_id: chatId, text: `🏦 Nhập thông tin:\n\`TênBank | STK | ChủTàiKhoản\``, parse_mode: 'Markdown' });
+    } else if (dataKey === 'MENU_WITHDRAW_USDT') {
+      if (user.balance < MIN_WITHDRAW_VN) {
+        sendTelegram('sendMessage', { chat_id: chatId, text: `❌ Số dư chưa đủ rút.` });
+        return;
+      }
+      user.withdrawStep = 'WAITING_USDT_WALLET';
+      saveData(db);
+      sendTelegram('sendMessage', { chat_id: chatId, text: `🌐 Nhập địa chỉ ví BEP-20 (USDT):` });
+    }
+  }
+}
+
+const PORT = process.env.PORT || 3000;
+http.createServer((req, res) => {
+  res.writeHead(200, { 'Content-Type': 'text/plain' });
+  res.end('Bot is running 24/7!');
+}).listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+  pollTelegram();
+});
    if (parts.length < 3) {
         sendTelegram('sendMessage', { chat_id: chatId, text: '❌ Sai cú pháp! Dạng: `MBBank | STK | Tên`', parse_mode: 'Markdown' });
         return;
