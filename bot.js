@@ -12,7 +12,6 @@ const REWARD_PER_REF = 100;
 const MIN_WITHDRAW_VN = 10000; 
 const MAX_WITHDRAW_VN = 50000; 
 const USDT_RATE = 25000; 
-const MIN_WITHDRAW_USDT_VND = 10000; 
 const COOLDOWN_TIME = 10 * 60 * 1000; 
 const DB_FILE = './data.json';
 
@@ -153,7 +152,6 @@ function handleUpdate(update) {
     const text = msg.text.trim();
     const user = getUser(db, userId);
 
-    // Lệnh tạo code dành riêng cho Admin: /taocode <MÃ> <số_tiền> <số_lượt>
     if (text.startsWith('/taocode')) {
       if (userId !== ADMIN_ID) {
         sendTelegram('sendMessage', { chat_id: chatId, text: '❌ Bạn không có quyền sử dụng lệnh này!' });
@@ -221,6 +219,7 @@ function handleUpdate(update) {
       return;
     }
 
+    // Xử lý khi thành viên đang ở trạng thái chờ nhập giftcode
     if (user.waitingForGiftcode) {
       const codeInput = text.toUpperCase();
       const gift = db.custom_codes[codeInput];
@@ -231,16 +230,19 @@ function handleUpdate(update) {
       }
 
       if (user.usedCustomCodes.includes(codeInput)) {
+        user.waitingForGiftcode = false;
+        saveData(db);
         sendTelegram('sendMessage', { chat_id: chatId, text: '❌ Bạn đã sử dụng mã Giftcode này rồi!' });
         return;
       }
 
       if (gift.usedCount >= gift.maxUses) {
+        user.waitingForGiftcode = false;
+        saveData(db);
         sendTelegram('sendMessage', { chat_id: chatId, text: '❌ Mã Giftcode này đã hết lượt sử dụng!' });
         return;
       }
 
-      // Thực hiện cộng tiền
       user.balance += gift.amount;
       user.usedCustomCodes.push(codeInput);
       gift.usedCount += 1;
@@ -388,7 +390,7 @@ function handleUpdate(update) {
       saveData(db);
       sendTelegram('sendMessage', {
         chat_id: chatId,
-        text: `🎁 **NHẬP MÃ GIFTCODE**\n\nVui lòng gửi mã giftcode của bạn vào khung chat:\n*(Gõ `/huy` nếu muốn thoát)*`,
+        text: `🎁 **NHẬP MÃ GIFTCODE**\n\nVui lòng gửi mã giftcode của bạn vào khung chat:\n*(Gõ \`/huy\` nếu muốn thoát)*`,
         parse_mode: 'Markdown'
       });
     } else if (dataKey === 'MENU_REF') {
