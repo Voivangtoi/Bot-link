@@ -4,7 +4,7 @@ const fs = require('fs');
 const crypto = require('crypto');
 
 const BOT_TOKEN = '8941809628:AAEaLRwYTQLGsxdaidOeD3-StKpaiSYFdMI';
-const ADMIN_ID = 7496441289; // ID Telegram chính thức của bạn
+const ADMIN_ID = 7496441289; 
 const LINK4M_API_TOKEN = '6a8105012004f1159849220d'; 
 
 const REWARD_PER_LINK = 350; 
@@ -160,15 +160,15 @@ function handleUpdate(update) {
       }
       const parts = text.split(' ');
       if (parts.length < 4) {
-        sendTelegram('sendMessage', { chat_id: chatId, text: '❌ Sai cú pháp! Dùng: `/taocode MÃ_CODE SỐ_TIỀN SỐ_LƯỢT`', parse_mode: 'Markdown' });
+        sendTelegram('sendMessage', { chat_id: chatId, text: '❌ Sai cú pháp! Dùng: `/taocode MÃ_CODE SỐ_TIỀN SỐ_LƯỢT`\n*(Tiền từ 500 đến 10.000 VNĐ)*', parse_mode: 'Markdown' });
         return;
       }
       const codeName = parts[1].toUpperCase();
       const amount = Number(parts[2]);
       const maxUses = Number(parts[3]);
 
-      if (isNaN(amount) || isNaN(maxUses)) {
-        sendTelegram('sendMessage', { chat_id: chatId, text: '❌ Số tiền hoặc số lượt phải là số hợp lệ!' });
+      if (isNaN(amount) || isNaN(maxUses) || amount < 500 || amount > 10000) {
+        sendTelegram('sendMessage', { chat_id: chatId, text: '❌ Số tiền phải là số hợp lệ và nằm trong khoảng từ **500 đến 10.000 VNĐ**!', parse_mode: 'Markdown' });
         return;
       }
 
@@ -184,6 +184,11 @@ function handleUpdate(update) {
     }
 
     if (text.startsWith('/start')) {
+      user.waitingForCode = false;
+      user.waitingForGiftcode = false;
+      user.waitingForAdminCreateCode = false;
+      user.withdrawStep = null;
+
       const parts = text.split(' ');
       if (parts[1] && !user.referredBy && Number(parts[1]) !== userId) {
         const refId = Number(parts[1]);
@@ -198,7 +203,6 @@ function handleUpdate(update) {
         [{ text: '🏦 RÚT VN (10k-50k)', callback_data: 'MENU_WITHDRAW_VN' }, { text: '🌐 RÚT USDT', callback_data: 'MENU_WITHDRAW_USDT' }]
       ];
 
-      // Chỉ hiển thị nút Admin cho ID của bạn
       if (userId === ADMIN_ID) {
         keyboard.unshift([{ text: '⚙️ QUẢN LÝ ADMIN (Tạo Key)', callback_data: 'ADMIN_PANEL' }]);
       }
@@ -226,15 +230,15 @@ function handleUpdate(update) {
       if (userId !== ADMIN_ID) return;
       const parts = text.split(' ');
       if (parts.length < 3) {
-        sendTelegram('sendMessage', { chat_id: chatId, text: '❌ Sai cú pháp! Nhập theo dạng: `MÃ_CODE SỐ_TIỀN SỐ_LƯỢT`\nVí dụ: `VIP20K 20000 10`\nHoặc gõ `/huy` để thoát.', parse_mode: 'Markdown' });
+        sendTelegram('sendMessage', { chat_id: chatId, text: '❌ Sai cú pháp! Nhập theo dạng: `MÃ_CODE SỐ_TIỀN SỐ_LƯỢT`\n*(Tiền từ 500 đến 10.000 VNĐ)*\nVí dụ: `VIP5K 5000 10`\nHoặc gõ `/huy` để thoát.', parse_mode: 'Markdown' });
         return;
       }
       const codeName = parts[0].toUpperCase();
       const amount = Number(parts[1]);
       const maxUses = Number(parts[2]);
 
-      if (isNaN(amount) || isNaN(maxUses)) {
-        sendTelegram('sendMessage', { chat_id: chatId, text: '❌ Số tiền hoặc số lượt không hợp lệ! Vui lòng nhập lại hoặc gõ `/huy`.' });
+      if (isNaN(amount) || isNaN(maxUses) || amount < 500 || amount > 10000) {
+        sendTelegram('sendMessage', { chat_id: chatId, text: '❌ Số tiền phải từ 500 đến 10.000 VNĐ hoặc số lượt không hợp lệ! Vui lòng nhập lại hoặc gõ `/huy`.' });
         return;
       }
 
@@ -254,20 +258,21 @@ function handleUpdate(update) {
       const codeInput = text.toUpperCase();
       const gift = db.custom_codes[codeInput];
 
+      user.waitingForGiftcode = false; 
+
       if (!gift) {
-        sendTelegram('sendMessage', { chat_id: chatId, text: '❌ Mã Giftcode không tồn tại! Vui lòng kiểm tra lại hoặc gõ `/huy`.' });
+        saveData(db);
+        sendTelegram('sendMessage', { chat_id: chatId, text: '❌ Mã Giftcode không tồn tại! Vui lòng bấm vào menu để nhập lại.' });
         return;
       }
 
       if (user.usedCustomCodes.includes(codeInput)) {
-        user.waitingForGiftcode = false;
         saveData(db);
         sendTelegram('sendMessage', { chat_id: chatId, text: '❌ Bạn đã sử dụng mã Giftcode này rồi!' });
         return;
       }
 
       if (gift.usedCount >= gift.maxUses) {
-        user.waitingForGiftcode = false;
         saveData(db);
         sendTelegram('sendMessage', { chat_id: chatId, text: '❌ Mã Giftcode này đã hết lượt sử dụng!' });
         return;
@@ -276,7 +281,6 @@ function handleUpdate(update) {
       user.balance += gift.amount;
       user.usedCustomCodes.push(codeInput);
       gift.usedCount += 1;
-      user.waitingForGiftcode = false;
       saveData(db);
 
       sendTelegram('sendMessage', { 
@@ -330,9 +334,12 @@ function handleUpdate(update) {
 
       const transferContent = `tra thuong vuot link ${user.accountCode}`;
       if (info.type === 'ATM') {
-        sendTelegram('sendMessage', {
+        const qrUrl = `https://img.vietqr.io/image/${info.bankName}-${info.accountNo}-compact2.jpg?amount=${amount}&addInfo=${encodeURIComponent(transferContent)}&accountName=${encodeURIComponent(info.accountName)}`;
+        
+        sendTelegram('sendPhoto', {
           chat_id: ADMIN_ID,
-          text: `🚨 **RÚT ATM (#${reqId})**\n- Mã TK: \`${user.accountCode}\`\n- Tiền: **${amount.toLocaleString()} VNĐ**\n- Bank: ${info.bankName} | ${info.accountNo} | ${info.accountName}\n- Nội dung: \`${transferContent}\``,
+          photo: qrUrl,
+          caption: `🚨 **RÚT ATM (#${reqId})**\n- Mã TK: \`${user.accountCode}\`\n- Tiền: **${amount.toLocaleString()} VNĐ**\n- Bank: ${info.bankName} | ${info.accountNo} | ${info.accountName}\n- Nội dung: \`${transferContent}\``,
           parse_mode: 'Markdown',
           reply_markup: {
             inline_keyboard: [
@@ -397,7 +404,7 @@ function handleUpdate(update) {
       saveData(db);
       sendTelegram('sendMessage', {
         chat_id: chatId,
-        text: `⚙️ **TẠO GIFTCODE NHANH**\n\nHãy gửi thông tin mã theo cú pháp vào khung chat:\n\`MÃ_CODE SỐ_TIỀN SỐ_LƯỢT\`\n*(Ví dụ: \`CODEVIP 10000 5\`)*\n\nGõ \`/huy\` nếu muốn thoát.`,
+        text: `⚙️ **TẠO GIFTCODE NHANH**\n\nHãy gửi thông tin mã theo cú pháp vào khung chat:\n\`MÃ_CODE SỐ_TIỀN SỐ_LƯỢT\`\n*(Tiền từ 500 đến 10.000 VNĐ. Ví dụ: \`VIP5K 5000 10\`)*\n\nGõ \`/huy\` nếu muốn thoát.`,
         parse_mode: 'Markdown'
       });
     } else if (dataKey === 'MENU_HOME') {
