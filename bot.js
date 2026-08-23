@@ -4,7 +4,7 @@ const fs = require('fs');
 const crypto = require('crypto');
 
 const BOT_TOKEN = '8941809628:AAEaLRwYTQLGsxdaidOeD3-StKpaiSYFdMI';
-const ADMIN_ID = 9896556948; 
+const ADMIN_ID = 9896556948; // ID Telegram chính thức của bạn
 const LINK4M_API_TOKEN = '6a8105012004f1159849220d'; 
 
 const REWARD_PER_LINK = 350; 
@@ -38,6 +38,7 @@ function saveData(data) {
 
 function getUser(data, userId) {
   if (!data.users[userId]) {
+    // Chỉ tạo mã ngẫu nhiên 1 lần duy nhất khi người dùng mới bấm start lần đầu và lưu vĩnh viễn
     data.users[userId] = {
       userId,
       accountCode: Math.floor(1000000000 + Math.random() * 9000000000).toString(),
@@ -196,7 +197,7 @@ function handleUpdate(update) {
 
       sendTelegram('sendMessage', {
         chat_id: chatId,
-        text: `👋 Chào mừng ${msg.from.first_name}!\n\n🆔 ID: \`${user.accountCode}\`\n💰 Số dư: ${user.balance.toLocaleString('vi-VN')} VNĐ\n🎁 Thưởng link: +${REWARD_PER_LINK} VNĐ`,
+        text: `👋 Chào mừng ${msg.from.first_name}!\n\n🆔 Mã TK: \`${user.accountCode}\`\n💰 Số dư: ${user.balance.toLocaleString('vi-VN')} VNĐ\n🎁 Thưởng link: +${REWARD_PER_LINK} VNĐ`,
         parse_mode: 'Markdown',
         reply_markup: {
           inline_keyboard: [
@@ -219,7 +220,6 @@ function handleUpdate(update) {
       return;
     }
 
-    // Xử lý khi thành viên đang ở trạng thái chờ nhập giftcode
     if (user.waitingForGiftcode) {
       const codeInput = text.toUpperCase();
       const gift = db.custom_codes[codeInput];
@@ -302,7 +302,7 @@ function handleUpdate(update) {
       if (info.type === 'ATM') {
         sendTelegram('sendMessage', {
           chat_id: ADMIN_ID,
-          text: `🚨 **RÚT ATM (#${reqId})**\n- ID: \`${user.accountCode}\`\n- Tiền: **${amount.toLocaleString()} VNĐ**\n- Bank: ${info.bankName} | ${info.accountNo} | ${info.accountName}\n- Nội dung: \`${transferContent}\``,
+          text: `🚨 **RÚT ATM (#${reqId})**\n- Mã TK: \`${user.accountCode}\`\n- Tiền: **${amount.toLocaleString()} VNĐ**\n- Bank: ${info.bankName} | ${info.accountNo} | ${info.accountName}\n- Nội dung: \`${transferContent}\``,
           parse_mode: 'Markdown',
           reply_markup: {
             inline_keyboard: [
@@ -314,7 +314,7 @@ function handleUpdate(update) {
         const usdtVal = (amount / USDT_RATE).toFixed(2);
         sendTelegram('sendMessage', {
           chat_id: ADMIN_ID,
-          text: `🚨 **RÚT USDT (#${reqId})**\n- ID: \`${user.accountCode}\`\n- Tiền: **${usdtVal} USDT**\n- Ví: \`${info.usdtWallet}\``,
+          text: `🚨 **RÚT USDT (#${reqId})**\n- Mã TK: \`${user.accountCode}\`\n- Tiền: **${usdtVal} USDT**\n- Ví: \`${info.usdtWallet}\``,
           parse_mode: 'Markdown',
           reply_markup: {
             inline_keyboard: [
@@ -446,6 +446,6 @@ http.createServer((req, res) => {
   res.writeHead(200, { 'Content-Type': 'text/plain' });
   res.end('Bot is running 24/7!');
 }).listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  console.log(`Server running on port `${PORT}`);
   pollTelegram();
 });
