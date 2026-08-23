@@ -4,7 +4,7 @@ const fs = require('fs');
 const crypto = require('crypto');
 
 const BOT_TOKEN = '8941809628:AAEaLRwYTQLGsxdaidOeD3-StKpaiSYFdMI';
-const ADMIN_ID = 8941809628; 
+const ADMIN_ID = 9896556948; 
 const LINK4M_API_TOKEN = '6a8105012004f1159849220d'; 
 
 const REWARD_PER_LINK = 350; 
