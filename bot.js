@@ -14,7 +14,7 @@ const USDT_RATE = 25000;
 const MIN_WITHDRAW_USDT_VAL = 0.5; 
 const MIN_WITHDRAW_USDT_VND = MIN_WITHDRAW_USDT_VAL * USDT_RATE; 
 
-const COOLDOWN_TIME = 10 * 60 * 1000; 
+const COOLDOWN_TIME = 0; 
 const DB_FILE = './data.json';
 
 function loadData() {
