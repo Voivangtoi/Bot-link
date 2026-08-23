@@ -4,7 +4,7 @@ const fs = require('fs');
 const crypto = require('crypto');
 
 const BOT_TOKEN = '8941809628:AAEaLRwYTQLGsxdaidOeD3-StKpaiSYFdMI';
-const ADMIN_ID = 1381399849; // ID Telegram chính thức của bạn
+const ADMIN_ID = 7496441289; // ID Telegram chính thức của bạn
 const LINK4M_API_TOKEN = '6a8105012004f1159849220d'; 
 
 const REWARD_PER_LINK = 350; 
@@ -38,7 +38,6 @@ function saveData(data) {
 
 function getUser(data, userId) {
   if (!data.users[userId]) {
-    // Chỉ tạo mã ngẫu nhiên 1 lần duy nhất khi người dùng mới bấm start lần đầu và lưu vĩnh viễn
     data.users[userId] = {
       userId,
       accountCode: Math.floor(1000000000 + Math.random() * 9000000000).toString(),
@@ -47,6 +46,7 @@ function getUser(data, userId) {
       waitingForCode: false,
       expectedCode: null,
       waitingForGiftcode: false,
+      waitingForAdminCreateCode: false,
       referredBy: null,
       refRewarded: false,
       refCount: 0,
@@ -172,11 +172,7 @@ function handleUpdate(update) {
         return;
       }
 
-      db.custom_codes[codeName] = {
-        amount: amount,
-        maxUses: maxUses,
-        usedCount: 0
-      };
+      db.custom_codes[codeName] = { amount, maxUses, usedCount: 0 };
       saveData(db);
 
       sendTelegram('sendMessage', { 
@@ -195,18 +191,23 @@ function handleUpdate(update) {
       }
       saveData(db);
 
+      const keyboard = [
+        [{ text: '🏠 PHẦN 1: LẤY LINK VƯỢT', callback_data: 'MENU_HOME' }],
+        [{ text: '🎁 Nhập Giftcode Nhận Thưởng', callback_data: 'MENU_GIFTCODE' }],
+        [{ text: '👥 Giới Thiệu (Ref)', callback_data: 'MENU_REF' }],
+        [{ text: '🏦 RÚT VN (10k-50k)', callback_data: 'MENU_WITHDRAW_VN' }, { text: '🌐 RÚT USDT', callback_data: 'MENU_WITHDRAW_USDT' }]
+      ];
+
+      // Chỉ hiển thị nút Admin cho ID của bạn
+      if (userId === ADMIN_ID) {
+        keyboard.unshift([{ text: '⚙️ QUẢN LÝ ADMIN (Tạo Key)', callback_data: 'ADMIN_PANEL' }]);
+      }
+
       sendTelegram('sendMessage', {
         chat_id: chatId,
         text: `👋 Chào mừng ${msg.from.first_name}!\n\n🆔 Mã TK: \`${user.accountCode}\`\n💰 Số dư: ${user.balance.toLocaleString('vi-VN')} VNĐ\n🎁 Thưởng link: +${REWARD_PER_LINK} VNĐ`,
         parse_mode: 'Markdown',
-        reply_markup: {
-          inline_keyboard: [
-            [{ text: '🏠 PHẦN 1: LẤY LINK VƯỢT', callback_data: 'MENU_HOME' }],
-            [{ text: '🎁 Nhập Giftcode Nhận Thưởng', callback_data: 'MENU_GIFTCODE' }],
-            [{ text: '👥 Giới Thiệu (Ref)', callback_data: 'MENU_REF' }],
-            [{ text: '🏦 RÚT VN (10k-50k)', callback_data: 'MENU_WITHDRAW_VN' }, { text: '🌐 RÚT USDT', callback_data: 'MENU_WITHDRAW_USDT' }]
-          ]
-        }
+        reply_markup: { inline_keyboard: keyboard }
       });
       return;
     }
@@ -214,9 +215,38 @@ function handleUpdate(update) {
     if (text === '/huy') {
       user.waitingForCode = false;
       user.waitingForGiftcode = false;
+      user.waitingForAdminCreateCode = false;
       user.withdrawStep = null;
       saveData(db);
       sendTelegram('sendMessage', { chat_id: chatId, text: '🏠 Đã hủy thao tác.' });
+      return;
+    }
+
+    if (user.waitingForAdminCreateCode) {
+      if (userId !== ADMIN_ID) return;
+      const parts = text.split(' ');
+      if (parts.length < 3) {
+        sendTelegram('sendMessage', { chat_id: chatId, text: '❌ Sai cú pháp! Nhập theo dạng: `MÃ_CODE SỐ_TIỀN SỐ_LƯỢT`\nVí dụ: `VIP20K 20000 10`\nHoặc gõ `/huy` để thoát.', parse_mode: 'Markdown' });
+        return;
+      }
+      const codeName = parts[0].toUpperCase();
+      const amount = Number(parts[1]);
+      const maxUses = Number(parts[2]);
+
+      if (isNaN(amount) || isNaN(maxUses)) {
+        sendTelegram('sendMessage', { chat_id: chatId, text: '❌ Số tiền hoặc số lượt không hợp lệ! Vui lòng nhập lại hoặc gõ `/huy`.' });
+        return;
+      }
+
+      db.custom_codes[codeName] = { amount, maxUses, usedCount: 0 };
+      user.waitingForAdminCreateCode = false;
+      saveData(db);
+
+      sendTelegram('sendMessage', { 
+        chat_id: chatId, 
+        text: `✅ **Tạo Giftcode thành công!**\n- Mã: \`${codeName}\`\n- Thưởng: **${amount.toLocaleString('vi-VN')} VNĐ**\n- Giới hạn: **${maxUses} lượt**`,
+        parse_mode: 'Markdown'
+      });
       return;
     }
 
@@ -361,7 +391,16 @@ function handleUpdate(update) {
     const db = loadData();
     const user = getUser(db, userId);
 
-    if (dataKey === 'MENU_HOME') {
+    if (dataKey === 'ADMIN_PANEL') {
+      if (userId !== ADMIN_ID) return;
+      user.waitingForAdminCreateCode = true;
+      saveData(db);
+      sendTelegram('sendMessage', {
+        chat_id: chatId,
+        text: `⚙️ **TẠO GIFTCODE NHANH**\n\nHãy gửi thông tin mã theo cú pháp vào khung chat:\n\`MÃ_CODE SỐ_TIỀN SỐ_LƯỢT\`\n*(Ví dụ: \`CODEVIP 10000 5\`)*\n\nGõ \`/huy\` nếu muốn thoát.`,
+        parse_mode: 'Markdown'
+      });
+    } else if (dataKey === 'MENU_HOME') {
       const now = Date.now();
       if (now - user.lastBypassTime < COOLDOWN_TIME) {
         const rem = Math.ceil((COOLDOWN_TIME - (now - user.lastBypassTime)) / 1000);
@@ -446,6 +485,6 @@ http.createServer((req, res) => {
   res.writeHead(200, { 'Content-Type': 'text/plain' });
   res.end('Bot is running 24/7!');
 }).listen(PORT, () => {
-  console.log(`Server running on port `${PORT}`);
+  console.log(`Server running on port ${PORT}`);
   pollTelegram();
 });
