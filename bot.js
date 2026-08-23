@@ -8,6 +8,7 @@ const ADMIN_ID = 8941809628;
 const LINK4M_API_TOKEN = '6a8105012004f1159849220d'; 
 
 const REWARD_PER_LINK = 350; 
+const REWARD_PER_REF = 100; // Thưởng +100đ khi ref vượt link đầu tiên
 const MIN_WITHDRAW_VN = 10000; 
 const USDT_RATE = 25000; 
 const MIN_WITHDRAW_USDT_VAL = 0.5; 
@@ -40,7 +41,10 @@ function getUser(data, userId) {
       usdtWallet: null,
       lastBypassTime: 0,
       waitingForCode: false,
-      expectedCode: null
+      expectedCode: null,
+      referredBy: null,       // Người giới thiệu
+      refRewarded: false,     // Đã thưởng cho người giới thiệu chưa
+      refCount: 0             // Số người giới thiệu thành công
     };
     saveData(data);
   }
@@ -79,6 +83,7 @@ async function createDynamicLink(code) {
 function getMainKeyboard() {
   return Markup.inlineKeyboard([
     [Markup.button.callback('🏠 PHẦN 1: LẤY LINK VƯỢT', 'MENU_HOME')],
+    [Markup.button.callback('👥 Giới Thiệu (Ref)', 'MENU_REF')],
     [Markup.button.callback('🏦 RÚT VN (ATM)', 'MENU_WITHDRAW_VN'), Markup.button.callback('🌐 RÚT BEP 20 (USDT)', 'MENU_WITHDRAW_USDT')],
     [Markup.button.callback('⚙️ Cài Đặt Ngân Hàng / Ví', 'MENU_SETTINGS')]
   ]);
@@ -90,12 +95,22 @@ bot.start((ctx) => {
   user.lastBypassTime = 0;
   user.waitingForCode = false;
   user.expectedCode = null;
+
+  // Xử lý link Giới thiệu
+  const startPayload = ctx.message.text.split(' ')[1];
+  if (startPayload && !user.referredBy && Number(startPayload) !== ctx.from.id) {
+    const referrerId = Number(startPayload);
+    if (db.users[referrerId]) {
+      user.referredBy = referrerId;
+    }
+  }
   saveData(db);
 
   ctx.reply(
     `👋 Chào mừng **${ctx.from.first_name}** đến với Bot Vượt Link Kiếm Tiền!\n\n` +
     `💰 **Số dư:** ${user.balance.toLocaleString('vi-VN')} VNĐ (~${(user.balance / USDT_RATE).toFixed(2)} USDT)\n` +
-    `🎁 **Thưởng:** +${REWARD_PER_LINK} VNĐ / 1 mã vượt thành công.\n\n` +
+    `🎁 **Thưởng vượt link:** +${REWARD_PER_LINK} VNĐ / mã thành công.\n` +
+    `👥 **Thưởng giới thiệu:** +${REWARD_PER_REF} VNĐ / 1 ref vượt link đầu tiên.\n\n` +
     `Chọn chức năng phía dưới:`,
     getMainKeyboard()
   );
@@ -111,7 +126,7 @@ bot.action('MENU_HOME', async (ctx) => {
     const remainingSec = Math.ceil((COOLDOWN_TIME - timePassed) / 1000);
     const min = Math.floor(remainingSec / 60);
     const sec = remainingSec % 60;
-    return ctx.reply(`⏳ **Đang trong thời gian chờ:** Vui lòng đợi **${min} phút ${sec} giây** nữa mới được lấy link tiếp theo!`, getMainKeyboard());
+    return ctx.reply(`⏳ **Đang trong thời gian chờ:** Vui lòng đợi **${min} phút ${sec} giây** nữa!`, getMainKeyboard());
   }
 
   const generatedCode = generateDynamicCode();
@@ -138,6 +153,22 @@ bot.action('MENU_HOME', async (ctx) => {
       [Markup.button.callback('❌ Hủy & Về Trang Chủ', 'CANCEL_ACTION')]
     ])
   );
+});
+
+bot.action('MENU_REF', (ctx) => {
+  const db = loadData();
+  const user = getUser(db, ctx.from.id);
+  const refLink = `https://t.me/${ctx.botInfo.username}?start=${ctx.from.id}`;
+
+  let msg = `👥 **CHƯƠNG TRÌNH GIỚI THIỆU (REFERRAL)**\n\n`;
+  msg += `🔗 **Link Giới Thiệu Của Bạn:**\n\`${refLink}\`\n\n`;
+  msg += `🎁 **Phần thưởng:** **+${REWARD_PER_REF} VNĐ** cho mỗi người bạn mời thành công.\n`;
+  msg += `📌 **Điều kiện:** Người được mời phải thực hiện **vượt thành công 1 link** đầu tiên thì bạn mới được cộng tiền.\n\n`;
+  msg += `📊 Số ref thành công: **${user.refCount || 0} người**`;
+
+  ctx.reply(msg, Markup.inlineKeyboard([
+    [Markup.button.callback('⬅️ Quay Lại Menu', 'BACK_MAIN')]
+  ]));
 });
 
 bot.action('CANCEL_ACTION', (ctx) => {
@@ -338,11 +369,11 @@ bot.on('text', async (ctx) => {
   const user = getUser(db, ctx.from.id);
 
   if (!user.waitingForCode) {
-    return ctx.reply('👉 Vui lòng bấm nút **"🏠 PHẦN 1: LẤY LINK VƯỢT"** trước khi nhập mã xác nhận!', getMainKeyboard());
+    return ctx.reply('👉 Vui lòng bấm nút **"🏠 PHẦN 1: LẤY LINK VƯỢT"** trước khi nhập mã!', getMainKeyboard());
   }
 
   if (text !== user.expectedCode) {
-    return ctx.reply('❌ **SAI MÃ XÁC NHẬN!** Mã bạn nhập không khớp với link đã cấp. Vui lòng kiểm tra lại hoặc gõ `/huy` để hủy.');
+    return ctx.reply('❌ **SAI MÃ XÁC NHẬN!** Mã không khớp. Vui lòng thử lại hoặc gõ `/huy` để hủy.');
   }
 
   const now = Date.now();
@@ -351,16 +382,32 @@ bot.on('text', async (ctx) => {
   user.lastBypassTime = now;
   user.waitingForCode = false;
   user.expectedCode = null;
+
+  // Xử lý cộng thưởng Referral cho người giới thiệu khi ref vượt link lần đầu
+  if (user.referredBy && !user.refRewarded) {
+    const referrer = db.users[user.referredBy];
+    if (referrer) {
+      referrer.balance += REWARD_PER_REF;
+      referrer.refCount = (referrer.refCount || 0) + 1;
+      
+      bot.telegram.sendMessage(
+        user.referredBy, 
+        `🎉 **THƯỞNG GIỚI THIỆU!**\n\nThành viên do bạn mời (\`${user.userId}\`) vừa hoàn thành vượt link đầu tiên!\n💰 Cộng thưởng: **+${REWARD_PER_REF} VNĐ** vào tài khoản.`
+      ).catch(() => {});
+    }
+    user.refRewarded = true;
+  }
+
   saveData(db);
 
   ctx.reply(
     `🎉 **XÁC NHẬN MÃ CHÍNH XÁC!**\n\n` +
     `💰 Cộng: **+${REWARD_PER_LINK} VNĐ**\n` +
     `💵 Số dư mới: **${user.balance.toLocaleString('vi-VN')} VNĐ**\n\n` +
-    `Bấm vào menu bên dưới để tiếp tục lượt tiếp theo:`,
+    `Bấm vào menu bên dưới để tiếp tục:`,
     getMainKeyboard()
   );
 });
 
 bot.launch();
-console.log('⚡ Bot Vượt Link Đã Khởi Động!');
+console.log('⚡ Bot Vượt Link + Ref Đã Khởi Động!');
