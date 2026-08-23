@@ -395,6 +395,10 @@ function handleUpdate(update) {
     const chatId = cb.message.chat.id;
     const userId = cb.from.id;
     const dataKey = cb.data;
+    
+    // Phản hồi callback ngay lập tức để bỏ hiệu ứng xoay trên nút bấm của Telegram
+    sendTelegram('answerCallbackQuery', { callback_query_id: cb.id }).catch(() => {});
+
     const db = loadData();
     const user = getUser(db, userId);
 
